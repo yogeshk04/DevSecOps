@@ -12,6 +12,9 @@ FROM nginx:1.27-alpine AS production
 # Security: remove default nginx config
 RUN rm -rf /etc/nginx/conf.d/default.conf /usr/share/nginx/html/*
 
+# Replace global nginx config to avoid root-only user directive warning
+COPY nginx-global.conf /etc/nginx/nginx.conf
+
 # Copy custom nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
