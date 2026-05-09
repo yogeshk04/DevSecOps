@@ -1,0 +1,120 @@
+# ============================================================================
+# Service Startup Order Strategy:
+# 1. Database (db) - Foundation service, no dependencies
+# 2. Backend (backend) - Depends on healthy database
+# 3. Frontend (frontend) - Depends on backend being available
+# This order ensures proper initialization and health checks
+# ============================================================================
+
+services:
+   # ============================================================================
+  # PostgreSQL Database Service - DEPENDENCY FOUNDATION
+  # ============================================================================
+  # Provides persistent data storage for the application
+  # Image: PostgreSQL 16 on Alpine Linux (lightweight, security-focused)
+  db:
+    image: postgres:16-alpine
+    container_name: devsecops-db
+    restart: unless-stopped  # Automatically restart unless explicitly stopped
+    
+    # Database credentials and initial configuration
+    environment:
+      POSTGRES_USER: devops_admin
+      POSTGRES_PASSWORD: SecureDevOps2026!
+      POSTGRES_DB: devsecops_db
+    
+    # Port mapping: host:container
+    # WARNING: In production, do not expose port 5432 to public networks
+    ports:
+      - "5432:5432"
+    
+    # Volume for persistent data storage
+    # Survives container restarts and recreations
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    
+    # Health check ensures database is ready before dependent services start
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devsecops_user -d devsecops_db"]
+      interval: 10s          # Check every 10 seconds
+      timeout: 5s            # Timeout if check takes longer than 5 seconds
+      retries: 5             # Mark unhealthy after 5 failed checks
+      start_period: 10s      # Wait 10s before first check
+    
+    # Security hardening: restrict filesystem access
+    tmpfs:
+      - /tmp
+      - /run
+
+  # ============================================================================
+  # Backend API Service - BUSINESS LOGIC LAYER
+  # ============================================================================
+  # RESTful API server that connects to PostgreSQL and serves frontend requests
+  backend:
+    build:
+      context: ./backend      # Build context directory
+      dockerfile: Dockerfile  # Dockerfile location
+    container_name: devsecops-backend
+    restart: unless-stopped
+    
+    # Application configuration passed as environment variables
+    environment:
+      PORT: "5000"
+      DB_USER: devops_admin
+      DB_PASSWORD: SecureDevOps2026!
+      DB_HOST: db             # Service name (Docker network DNS)
+      DB_PORT: "5432"
+      DB_NAME: devsecops_db
+    
+    # Internal port exposure (not published to host, only to Docker network)
+    expose:
+      - "5000"
+    
+    # Service dependency: ensures database is healthy before backend starts
+    depends_on:
+      db:
+        condition: service_healthy
+    
+    # Security options: prevent privilege escalation
+    security_opt:
+      - no-new-privileges:true
+    
+    # Read-only root filesystem: limits attack surface
+    read_only: true
+    
+    # Temporary filesystems for runtime needs
+    tmpfs:
+      - /tmp
+
+ # ============================================================================
+  # Frontend Service - PRESENTATION LAYER
+  # ============================================================================
+  # Serves static React application and acts as reverse proxy
+  frontend:
+    build:
+      context: ./frontend      # Build context directory
+      dockerfile: Dockerfile   # Dockerfile location
+    container_name: devsecops-frontend
+    restart: unless-stopped
+    
+    # Port mapping: host:container
+    # Exposes web application on HTTP port 80
+    ports:
+      - "80:8080"
+    
+    # Service dependency: ensures backend is running before frontend
+    depends_on:
+      - backend
+    
+    # Security options: prevent privilege escalation
+    security_opt:
+      - no-new-privileges:true
+
+# ============================================================================
+# Named Volumes
+# ============================================================================
+# Persistent storage managed by Docker
+volumes:
+  pgdata:
+    driver: local  # Local storage driver (can be changed for distributed storage)
+    # Database files persist across container lifecycle
