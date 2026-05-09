@@ -7,10 +7,10 @@ function ConfirmModal({ title, message, onConfirm, onCancel, emoji = '🗑️' }
         <p>{message}</p>
         <div className="modal-actions">
           <button className="btn btn-secondary" onClick={onCancel}>
-            Nah, keep it
+            Cancel
           </button>
           <button className="btn btn-danger" onClick={onConfirm}>
-            Yeah, delete it
+            Delete
           </button>
         </div>
       </div>
