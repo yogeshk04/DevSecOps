@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "dso.frontend.name" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "dso-helm.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ include "dso.frontend.name" . }}
+    app.kubernetes.io/part-of: {{ include "dso-helm.name" . }}
+    app.kubernetes.io/component: frontend
+spec:
+  type: {{ .Values.frontend.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "dso.frontend.name" . }}
+  ports:
+    - port: {{ .Values.frontend.service.port }}
+      targetPort: {{ .Values.frontend.port }}
+      protocol: TCP
+      {{- if and (eq .Values.frontend.service.type "NodePort") .Values.frontend.service.nodePort }}
+      nodePort: {{ .Values.frontend.service.nodePort }}
+      {{- end }}

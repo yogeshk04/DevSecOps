@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dso.frontend.name" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "dso-helm.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ include "dso.frontend.name" . }}
+    app.kubernetes.io/part-of: {{ include "dso-helm.name" . }}
+    app.kubernetes.io/component: frontend
+spec:
+  replicas: {{ .Values.frontend.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "dso.frontend.name" . }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "dso.frontend.name" . }}
+        app.kubernetes.io/part-of: {{ include "dso-helm.name" . }}
+        app.kubernetes.io/component: frontend
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: frontend
+          image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.frontend.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false   # Nginx needs write access for cache/pid
+            runAsNonRoot: true
+            runAsUser: 101                  # nginx user UID in the alpine image
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.frontend.livenessProbe.path }}
+              port: {{ .Values.frontend.port }}
+            initialDelaySeconds: {{ .Values.frontend.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.frontend.livenessProbe.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.frontend.readinessProbe.path }}
+              port: {{ .Values.frontend.port }}
+            initialDelaySeconds: {{ .Values.frontend.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.frontend.readinessProbe.periodSeconds }}

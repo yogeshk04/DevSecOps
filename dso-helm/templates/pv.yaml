@@ -1,0 +1,32 @@
+# PersistentVolume backed by a local host path on the kind node.
+#
+# PREREQUISITES (run once before helm install):
+#   1. Create the directory on your Windows host:
+#        mkdir D:\dso-storage
+#   2. If using kind with extraMounts, add to your kind cluster config:
+#        nodes:
+#          - role: control-plane
+#            extraMounts:
+#              - hostPath: D:\dso-storage
+#                containerPath: /run/desktop/mnt/host/d/dso-storage
+#      OR, Docker Desktop Kubernetes exposes D:\ automatically at
+#      /run/desktop/mnt/host/d/ inside containers.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ include "dso.pv.name" . }}
+  labels:
+    {{- include "dso-helm.labels" . | nindent 4 }}
+    app.kubernetes.io/part-of: {{ include "dso-helm.name" . }}
+    app.kubernetes.io/component: database
+spec:
+  capacity:
+    storage: {{ .Values.storage.size }}
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: {{ .Values.storage.storageClassName }}
+  hostPath:
+    path: {{ .Values.storage.hostPath }}
+    # DirectoryOrCreate creates the directory inside the node if absent.
+    type: DirectoryOrCreate

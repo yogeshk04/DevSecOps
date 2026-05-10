@@ -1,0 +1,51 @@
+==========================================================================
+DevSecOps Blog Platform deployed successfully!
+==========================================================================
+
+NAMESPACE : {{ .Values.namespace }}
+RELEASE   : {{ .Release.Name }}
+
+--------------------------------------------------------------------------
+ACCESSING THE APPLICATION
+--------------------------------------------------------------------------
+
+{{- if .Values.ingress.enabled }}
+Ingress is enabled. Add to your hosts file:
+  127.0.0.1   {{ (index .Values.ingress.hosts 0).host }}
+Then open: http://{{ (index .Values.ingress.hosts 0).host }}
+
+{{- else if eq .Values.frontend.service.type "NodePort" }}
+Frontend is exposed via NodePort:
+  http://localhost:{{ .Values.frontend.service.nodePort }}
+
+{{- else }}
+Port-forward the frontend:
+  kubectl port-forward -n {{ .Values.namespace }} svc/{{ include "dso.frontend.name" . }} 8080:{{ .Values.frontend.service.port }}
+  Then open: http://localhost:8080
+{{- end }}
+
+--------------------------------------------------------------------------
+USEFUL COMMANDS
+--------------------------------------------------------------------------
+
+# Watch all pods come up
+kubectl get pods -n {{ .Values.namespace }} -w
+
+# Check backend health
+kubectl port-forward -n {{ .Values.namespace }} svc/{{ include "dso.backend.name" . }} 5000:{{ .Values.backend.port }}
+# curl http://localhost:5000/api/health
+
+# Tail backend logs
+kubectl logs -n {{ .Values.namespace }} -l app.kubernetes.io/name=devsecops-backend -f
+
+# Tail DB logs
+kubectl logs -n {{ .Values.namespace }} -l app.kubernetes.io/name=devsecops-db -f
+
+# Upgrade
+helm upgrade {{ .Release.Name }} ./dso-helm -n {{ .Values.namespace }}
+
+# Uninstall
+helm uninstall {{ .Release.Name }} -n {{ .Values.namespace }}
+
+NOTE: The Namespace '{{ .Values.namespace }}' is managed by this chart.
+      It will be deleted on helm uninstall.

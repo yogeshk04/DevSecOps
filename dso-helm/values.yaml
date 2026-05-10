@@ -1,0 +1,248 @@
+# Default values for dso-helm.
+# DevSecOps Blog Platform — kind / Docker Desktop local cluster
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Namespace all resources are deployed into.
+namespace: devsecops
+
+# Service accounts are not created; all pods set automountServiceAccountToken: false.
+serviceAccount:
+  create: false
+  automount: false
+  annotations: {}
+  name: ""
+
+# HPA is disabled for a local cluster.
+autoscaling:
+  enabled: false
+
+# ==============================================================================
+# PostgreSQL Database
+# ==============================================================================
+db:
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+
+  # Credentials — override via --set or a secrets manager in production.
+  auth:
+    username: devsecops_user
+    password: devsecops_pass_2026
+    database: devsecops_db
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+
+# ==============================================================================
+# Local Storage (kind + Docker Desktop on Windows)
+# ==============================================================================
+storage:
+  # Size of the PostgreSQL PersistentVolume / PVC.
+  size: 10Gi
+
+  # StorageClass name used by the PVC and PV.
+  storageClassName: devsecops-local-sc
+
+  # Host path visible inside the kind node container.
+  # Docker Desktop on Windows exposes D:\ as /run/desktop/mnt/host/d inside
+  # WSL2-backed containers. Create the directory before deploying:
+  #   mkdir -p D:\dso-storage
+  hostPath: /run/desktop/mnt/host/d/dso-storage
+
+# ==============================================================================
+# Backend API (Node.js / Express)
+# ==============================================================================
+backend:
+  image:
+    repository: devsecops-backend
+    tag: "latest"
+    # Never = use locally loaded image; required for kind clusters.
+    # Run: kind load docker-image devsecops-backend:latest --name <cluster-name>
+    pullPolicy: Never
+
+  replicaCount: 1
+  port: 5000
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+  livenessProbe:
+    path: /api/health
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    timeoutSeconds: 5
+
+  readinessProbe:
+    path: /api/health
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+
+# ==============================================================================
+# Frontend (React + Nginx)
+# ==============================================================================
+frontend:
+  image:
+    repository: devsecops-frontend
+    tag: "latest"
+    # Never = use locally loaded image; required for kind clusters.
+    # Run: kind load docker-image devsecops-frontend:latest --name <cluster-name>
+    pullPolicy: Never
+
+  replicaCount: 1
+  port: 8080
+
+  service:
+    type: NodePort
+    port: 80
+    # Access the app at http://localhost:30080 after deploy.
+    nodePort: 30080
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  livenessProbe:
+    path: /
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+  readinessProbe:
+    path: /
+    initialDelaySeconds: 3
+    periodSeconds: 5
+
+# ==============================================================================
+# Ingress (optional)
+# ==============================================================================
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: devsecops.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# This is for setting Kubernetes Annotations to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+podAnnotations: {}
+# This is for setting Kubernetes Labels to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+podLabels: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+# This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
+service:
+  # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+  type: ClusterIP
+  # This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
+  port: 80
+
+# ==============================================================================
+# Ingress (optional — enable if you have an ingress controller installed)
+# ==============================================================================
+# This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: devsecops.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - devsecops.local
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+# This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+livenessProbe:
+  httpGet:
+    path: /
+    port: http
+readinessProbe:
+  httpGet:
+    path: /
+    port: http
+
+# This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# Additional volumes on the output Deployment definition.
+volumes: []
+# - name: foo
+#   secret:
+#     secretName: mysecret
+#     optional: false
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts: []
+# - name: foo
+#   mountPath: "/etc/foo"
+#   readOnly: true
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
