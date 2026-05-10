@@ -11,5 +11,5 @@ spec:
     - name: wget
       image: busybox
       command: ['wget']
-      args: ['{{ include "dso-helm.fullname" . }}:{{ .Values.service.port }}']
+      args: ['{{ include "dso.frontend.name" . }}:{{ .Values.frontend.service.port }}']
   restartPolicy: Never

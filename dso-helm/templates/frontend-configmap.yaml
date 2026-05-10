@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "dso.frontend.name" . }}-nginx
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "dso-helm.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ include "dso.frontend.name" . }}
+    app.kubernetes.io/part-of: {{ include "dso-helm.name" . }}
+    app.kubernetes.io/component: frontend
+data:
+  # Overrides the nginx server block baked into the image.
+  # proxy_pass uses the Helm-generated backend service DNS name so it resolves
+  # correctly regardless of release name or namespace.
+  default.conf: |
+    server {
+        listen {{ .Values.frontend.port }};
+        server_name _;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        location /api/ {
+            proxy_pass http://{{ include "dso.backend.name" . }}:{{ .Values.backend.port }};
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_cache_bypass $http_upgrade;
+        }
+
+        location ~ /\. {
+            deny all;
+            return 404;
+        }
+    }
