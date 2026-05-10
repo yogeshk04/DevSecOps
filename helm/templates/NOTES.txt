@@ -1,0 +1,52 @@
+Your DevSecOps application has been deployed!
+
+==========================================================================
+ACCESSING THE APPLICATION
+==========================================================================
+
+{{- if .Values.ingress.enabled }}
+
+Ingress is ENABLED. Add the following entry to your /etc/hosts (or C:\Windows\System32\drivers\etc\hosts):
+
+  <NODE-IP>   {{ .Values.ingress.host }}
+
+Then open: http://{{ .Values.ingress.host }}
+
+{{- else if eq .Values.frontend.service.type "NodePort" }}
+
+The frontend is exposed via NodePort. Access it at:
+
+  http://localhost:{{ .Values.frontend.service.nodePort }}
+
+{{- else if eq .Values.frontend.service.type "LoadBalancer" }}
+
+Run the following to get the external IP (may take a minute):
+
+  kubectl get svc {{ include "devsecops.frontend.fullname" . }} -n {{ .Release.Namespace }} -w
+
+Then open: http://<EXTERNAL-IP>
+
+{{- end }}
+
+==========================================================================
+USEFUL COMMANDS
+==========================================================================
+
+# Check all pods are Running
+kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+# Tail backend logs
+kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name=backend --follow
+
+# Tail frontend logs
+kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name=frontend --follow
+
+# Check backend health directly (port-forward)
+kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "devsecops.backend.fullname" . }} 5000:5000
+# Then: curl http://localhost:5000/api/health
+
+# Upgrade the release
+helm upgrade {{ .Release.Name }} ./helm -n {{ .Release.Namespace }}
+
+# Uninstall
+helm uninstall {{ .Release.Name }} -n {{ .Release.Namespace }}

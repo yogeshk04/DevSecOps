@@ -1,0 +1,143 @@
+# ==============================================================================
+# Global overrides
+# ==============================================================================
+nameOverride: ""
+fullnameOverride: ""
+
+# ==============================================================================
+# PostgreSQL Database
+# ==============================================================================
+db:
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+
+  auth:
+    username: devops_admin
+    # Override via --set db.auth.password=<val> or a values override file.
+    # Never commit real passwords to source control.
+    password: "SecureDevOps2026!"
+    database: devsecops_db
+
+  storage:
+    size: 1Gi
+    # Leave empty to use the cluster default StorageClass.
+    # For kind/Docker Desktop the default class (hostpath / local-path) works fine.
+    storageClass: ""
+
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  # Liveness / readiness probes
+  livenessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+
+  readinessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# ==============================================================================
+# Backend API (Node.js / Express)
+# ==============================================================================
+backend:
+  image:
+    # Image must be built locally first:
+    #   docker build -t devsecops-backend:latest ./backend
+    # For kind, load it:
+    #   kind load docker-image devsecops-backend:latest
+    # For Docker Desktop Kubernetes, locally-built images are available automatically.
+    repository: devsecops-backend
+    tag: "latest"
+    pullPolicy: Never
+
+  replicaCount: 1
+  port: 5000
+
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "500m"
+
+  livenessProbe:
+    path: /api/health
+    initialDelaySeconds: 20
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    path: /api/health
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# ==============================================================================
+# Frontend (React + Nginx)
+# ==============================================================================
+frontend:
+  image:
+    # Same local-build requirement as backend above.
+    repository: devsecops-frontend
+    tag: "latest"
+    pullPolicy: Never
+
+  replicaCount: 1
+  port: 8080
+
+  service:
+    # NodePort works on both kind and Docker Desktop without extra tooling.
+    # Change to LoadBalancer if you have MetalLB / Docker Desktop LB support.
+    type: NodePort
+    port: 80
+    nodePort: 30080   # Access via http://localhost:30080
+
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "200m"
+
+  livenessProbe:
+    path: /
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    path: /
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# ==============================================================================
+# Ingress (optional — enable if you have an ingress controller installed)
+# ==============================================================================
+ingress:
+  enabled: false
+  # className: nginx     # uncomment and set if your cluster has an ingress controller
+  className: ""
+  host: devsecops.local
+  annotations: {}
+  tls: []
+  #  - secretName: devsecops-tls
+  #    hosts:
+  #      - devsecops.local
