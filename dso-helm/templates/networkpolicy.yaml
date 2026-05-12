@@ -1,0 +1,48 @@
+# ---- NetworkPolicy: DB only accepts traffic from Backend pods ----
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "dso.db.name" . }}-allow-backend-only
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "dso-helm.labels" . | nindent 4 }}
+    app.kubernetes.io/part-of: {{ include "dso-helm.name" . }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "dso.db.name" . }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "dso.backend.name" . }}
+      ports:
+        - port: 5432
+          protocol: TCP
+
+---
+# ---- NetworkPolicy: Backend only accepts traffic from Frontend pods ----
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "dso.backend.name" . }}-allow-frontend-only
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "dso-helm.labels" . | nindent 4 }}
+    app.kubernetes.io/part-of: {{ include "dso-helm.name" . }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "dso.backend.name" . }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "dso.frontend.name" . }}
+      ports:
+        - port: {{ .Values.backend.port }}
+          protocol: TCP

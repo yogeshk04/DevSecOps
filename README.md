@@ -424,18 +424,34 @@ docker-compose restart backend
 
 ---
 
-## 📚 Resources
+## 📚 NetworkPolicies Details
 
-- [Docker Documentation](https://docs.docker.com/)
-- [PostgreSQL 16 Docs](https://www.postgresql.org/docs/16/)
-- [Node.js Express Guide](https://expressjs.com/)
-- [React Documentation](https://react.dev/)
+The NetworkPolicies verification:
+
+| Policy selector | Rendered value | Actual pod label | Match? |
+|---|---|---|---|
+| DB `podSelector` | `dso-dev-dso-helm-db` | `app.kubernetes.io/name=dso-dev-dso-helm-db` | ✅ |
+| Allow from backend | `dso-dev-dso-helm-backend` | `app.kubernetes.io/name=dso-dev-dso-helm-backend` | ✅ |
+| Backend `podSelector` | `dso-dev-dso-helm-backend` | `app.kubernetes.io/name=dso-dev-dso-helm-backend` | ✅ |
+| Allow from frontend | `dso-dev-dso-helm-frontend` | `app.kubernetes.io/name=dso-dev-dso-helm-frontend` | ✅ |
+
+**One gap to note:** The NetworkPolicies only define `Ingress` rules, which means there are no `Egress` restrictions. This is intentional for a local dev cluster (egress blocking would break DNS and external access), but worth knowing.
+
+`port-forward` via the service (more stable than pod name):
+
+```powershell
+kubectl port-forward -n dev svc/dso-dev-dso-helm-frontend 8080:80
+```
+
+Then open `http://localhost:8080`
 
 ---
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+
 
 ---
 

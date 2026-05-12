@@ -1,0 +1,7 @@
+{{- /*
+  This file is intentionally left empty.
+  DB, Backend, and Frontend Services are defined in:
+    db-service.yaml
+    backend-service.yaml
+    frontend-service.yaml
+*/ -}}

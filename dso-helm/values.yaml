@@ -1,0 +1,158 @@
+# Default values for dso-helm.
+# DevSecOps Blog Platform — kind / Docker Desktop local cluster
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Namespace all resources are deployed into.
+namespace: dev
+
+# Service accounts are not created; all pods set automountServiceAccountToken: false.
+serviceAccount:
+  create: false
+  automount: false
+  annotations: {}
+  name: ""
+
+# HPA is disabled for a local cluster.
+autoscaling:
+  enabled: false
+
+# ==============================================================================
+# PostgreSQL Database
+# ==============================================================================
+db:
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+
+  # Credentials — override via --set or a secrets manager in production.
+  auth:
+    username: devsecops_user
+    password: devsecops_pass_2026
+    database: devsecops_db
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+
+# ==============================================================================
+# Local Storage (kind + Docker Desktop on Windows)
+# ==============================================================================
+storage:
+  # Size of the PostgreSQL PersistentVolume / PVC.
+  size: 10Gi
+
+  # StorageClass name used by the PVC and PV.
+  storageClassName: devsecops-local-sc
+
+  # Host path visible inside the kind node container.
+  # Docker Desktop on Windows exposes D:\ as /run/desktop/mnt/host/d inside
+  # WSL2-backed containers. Create the directory before deploying:
+  #   mkdir -p D:\dso-storage
+  hostPath: /run/desktop/mnt/host/d/dso-storage
+
+# ==============================================================================
+# Backend API (Node.js / Express)
+# ==============================================================================
+backend:
+  image:
+    repository: devsecops-backend
+    tag: "latest"
+    # IfNotPresent: Docker Desktop built-in K8s shares the Docker image store.
+    # After enabling containerd store (Settings → Features in development),
+    # images built with 'docker build' are immediately available to pods.
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+  port: 5000
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+  livenessProbe:
+    path: /api/health
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    timeoutSeconds: 5
+
+  readinessProbe:
+    path: /api/health
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+
+# ==============================================================================
+# Frontend (React + Nginx)
+# ==============================================================================
+frontend:
+  image:
+    repository: devsecops-frontend
+    tag: "latest"
+    # IfNotPresent: Docker Desktop built-in K8s shares the Docker image store.
+    # After enabling containerd store (Settings → Features in development),
+    # images built with 'docker build' are immediately available to pods.
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+  port: 8080
+
+  service:
+    type: NodePort
+    port: 80
+    # Access the app at http://localhost:30080 after deploy.
+    nodePort: 30080
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  livenessProbe:
+    path: /
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+  readinessProbe:
+    path: /
+    initialDelaySeconds: 3
+    periodSeconds: 5
+
+# ==============================================================================
+# Ingress (optional)
+# ==============================================================================
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: devsecops.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+

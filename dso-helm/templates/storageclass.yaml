@@ -1,0 +1,15 @@
+# Local StorageClass for kind / Docker Desktop.
+# Uses static provisioning (kubernetes.io/no-provisioner).
+# The matching PersistentVolume is defined in pv.yaml.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.storage.storageClassName }}
+  labels:
+    {{- include "dso-helm.labels" . | nindent 4 }}
+    app.kubernetes.io/part-of: {{ include "dso-helm.name" . }}
+provisioner: kubernetes.io/no-provisioner
+# WaitForFirstConsumer delays binding until a pod is scheduled,
+# which ensures the PV on the correct node is selected.
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain

@@ -1,0 +1,7 @@
+{{- /*
+  This file is intentionally left empty.
+  Database, Backend, and Frontend Deployments are defined in:
+    db-deployment.yaml
+    backend-deployment.yaml
+    frontend-deployment.yaml
+*/ -}}
