@@ -29,8 +29,8 @@ db:
 
   # Credentials — override via --set or a secrets manager in production.
   auth:
-    username: devsecops_user
-    password: devsecops_pass_2026
+    username: devops_admin
+    password: SecureDevOps2026!
     database: devsecops_db
 
   resources:
@@ -72,7 +72,7 @@ storage:
 # ==============================================================================
 backend:
   image:
-    repository: devsecops-backend
+    repository: sieadocker/backend
     tag: "latest"
     # IfNotPresent: Docker Desktop built-in K8s shares the Docker image store.
     # After enabling containerd store (Settings → Features in development),
@@ -107,7 +107,7 @@ backend:
 # ==============================================================================
 frontend:
   image:
-    repository: devsecops-frontend
+    repository: sieadocker/frontend
     tag: "latest"
     # IfNotPresent: Docker Desktop built-in K8s shares the Docker image store.
     # After enabling containerd store (Settings → Features in development),

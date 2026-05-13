@@ -1,5 +1,5 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "dso.db.name" . }}
   namespace: {{ .Values.namespace }}
@@ -9,10 +9,8 @@ metadata:
     app.kubernetes.io/part-of: {{ include "dso-helm.name" . }}
     app.kubernetes.io/component: database
 spec:
+  serviceName: {{ include "dso.db.name" . }}
   replicas: 1
-  # Recreate is required for ReadWriteOnce volumes — only one pod can attach at a time.
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "dso.db.name" . }}
@@ -63,7 +61,12 @@ spec:
             initialDelaySeconds: {{ .Values.db.readinessProbe.initialDelaySeconds }}
             periodSeconds: {{ .Values.db.readinessProbe.periodSeconds }}
             timeoutSeconds: {{ .Values.db.readinessProbe.timeoutSeconds }}
-      volumes:
-        - name: db-storage
-          persistentVolumeClaim:
-            claimName: {{ include "dso.pvc.name" . }}
+  volumeClaimTemplates:
+    - metadata:
+        name: db-storage
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: {{ .Values.storage.storageClassName }}
+        resources:
+          requests:
+            storage: {{ .Values.storage.size }}
