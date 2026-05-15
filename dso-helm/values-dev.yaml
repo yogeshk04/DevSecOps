@@ -1,0 +1,16 @@
+# ============================================================
+# Dev environment overrides
+# Usage: helm install dso-dev .\dso-helm\ -f .\dso-helm\values-dev.yaml
+# ============================================================
+
+namespace: dev
+
+backend:
+  replicaCount: 1   # Single replica is enough for dev
+
+frontend:
+  replicaCount: 1
+  service:
+    type: NodePort
+    port: 80
+    nodePort: 30081   # Separate port so it doesn't clash with other environments

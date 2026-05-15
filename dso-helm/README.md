@@ -14,7 +14,7 @@ on a local **kind** or **Docker Desktop** Kubernetes cluster.
 | `storageclass.yaml` | Local `StorageClass` (no external provisioner) |
 | `pv.yaml` | `PersistentVolume` backed by a host path |
 | `pvc.yaml` | `PersistentVolumeClaim` for PostgreSQL data |
-| `db-deployment.yaml` | PostgreSQL Deployment |
+| `db-statefulset.yaml` | PostgreSQL Deployment |
 | `db-service.yaml` | PostgreSQL ClusterIP Service |
 | `backend-deployment.yaml` | Node.js API Deployment (init container waits for DB) |
 | `backend-service.yaml` | Backend ClusterIP Service |
