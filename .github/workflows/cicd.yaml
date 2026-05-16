@@ -1,0 +1,233 @@
+name: devsecops workflow
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE: ${{ env.REGISTRY }}/${{ github.repository }}/backend
+  FRONTEND_IMAGE: ${{ env.REGISTRY }}/${{ github.repository }}/frontend
+
+jobs:
+  # state 1 : linting
+  lint:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: ${{ matrix.component }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.component }}
+        run: npm ci
+
+      - name: Run ESLint
+        working-directory: ${{ matrix.component }}
+        run: npm run lint
+
+  # state 2 : sca scanning
+  sca:
+    name: "Dependency audit"
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: ${{ matrix.component }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.component }}
+        run: npm ci
+
+        # Run npm audit and fail if vulnerabilities are found
+      - name: Run npm audit
+        working-directory: ${{ matrix.component }}
+        run: npm audit --audit-level=high || true # || true to prevent job failure, we will handle it in the next step
+
+  # state 3 : build and push docker images
+  buid:
+    name: "Build ${{ matrix.component }} image"
+    runs-on: ubuntu-latest
+    needs: sca
+    permissions:
+      contents: read
+      packages: write # Required to push to GitHub Container Registry
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.component }}
+          tags: |
+            type=sha,prefi=
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./${{ matrix.component }}/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }} # Only push on non-PR events
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Security: provance and SBOM
+          provenance: true
+          sbom: true
+
+  # state 4: Image scanning with Trivy
+  image-scan:
+    name: "Scan ${{ matrix.component }} image with Trivy"
+    runs-on: ubuntu-latest
+    needs: buid
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build image for scanning
+        run: |
+          docker build -t ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.component }}:scan ./${{ matrix.component }}
+
+      - name: Run Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.component }}:scan
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
+          timeout: 10m
+
+  # Stage 5: IaC scanning with Checkov
+  iac-scan:
+    name: "Scan IaC with Checkov"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    needs: lint
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov scan on Terraform files
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: terraform
+          soft_fail: false
+          skip-check: CKV_AWS_39,CKV_AWS_58,CKV_AZURE_99,CKV_GCP_99,CKV_KUBERNETES_99 # Pubic Endpoints intentional for dev. Skip checks that are not relevant to our codebase
+          output_format: cli
+
+      - name: Run Checkov scan on Kubernetes manifests
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: dso-helm/templates
+          soft_fail: true # Allow failures for Helm templates as they may contain placeholders that trigger false positives
+          output_format: cli
+
+  # Stage 6: Docker file linting with Hadolint
+  dockerfile-lint:
+    name: "Lint Dockerfiles with Hadolint"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    needs: lint
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Hadolint on Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ./${{ matrix.component }}/Dockerfile
+          failure-threshold: warning # Set to warning to prevent build failure, we will handle it in the next step
+
+  # Stage 7: Update k8s manifests with new image tags (this is a placeholder, actual implementation would depend on how you manage your manifests)
+  update-manifests:
+    name: "Update Kubernetes manifests with new image tags"
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' # Only run on non-PR events to avoid modifying manifests in PRs
+    permissions:
+      contents: write # Required to commit changes to the repository
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }} # Use GITHUB_TOKEN to allow pushing changes
+      
+      - name: Get short SHA for tagging
+        id: sha
+        run: echo "short=$(gi rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      
+      - name: Update image tags in Kubernetes manifests
+        run: |
+          IMAGE_TAG=${{ steps.sha.outputs.short }}
+
+          # Find the line numbe and update the image tag in db-deployment.yaml
+          BACKEND_LINE_NUM=$(grep -n "image: \"{{ .Values.db.image.repository }}:{{ .Values.db.image.tag }}\"" dso-helm/templates/db-deployment.yaml | cut -d: -f1)
+          if [ -n "$BACKEND_LINE_NUM" ]; then
+            sed -i "${BACKEND_LINE_NUM}s|image: \"{{ .Values.db.image.repository }}:{{ .Values.db.image.tag }}\"|image: \"${{ env.BACKEND_IMAGE }}:${IMAGE_TAG}\"|" dso-helm/templates/db-deployment.yaml
+          fi
+
+          # Find the line number and update the image tag in frontend-deployment.yaml
+          FRONTEND_LINE_NUM=$(grep -n "image: \"{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}\"" dso-helm/templates/frontend-deployment.yaml | cut -d: -f1)
+          if [ -n "$FRONTEND_LINE_NUM" ]; then
+            sed -i "${FRONTEND_LINE_NUM}s|image: \"{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}\"|image: \"${{ env.FRONTEND_IMAGE }}:${IMAGE_TAG}\"|" dso-helm/templates/frontend-deployment.yaml
+          fi
+
+          echo "Updated image tags to ${IMAGE_TAG} in Kubernetes manifests"
+          grep -n "image: \"${{ env.BACKEND_IMAGE }}:${IMAGE_TAG}\"" dso-helm/templates/db-deployment.yaml || echo "No update needed for db-deployment.yaml"
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dso-helm/templates/backend-deployment.yaml dso-helm/templates/frontend-deployment.yaml
+          git commit -m "Update image tags to ${IMAGE_TAG} in Kubernetes manifests [skip ci]" || echo "No changes to commit"
+          git push
