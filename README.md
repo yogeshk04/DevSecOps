@@ -39,44 +39,39 @@ A modern 3-tier blog application demonstrating DevSecOps best practices with Rea
 
 ## 🏗️ Architecture
 
+Brief flow:
+
+```text
+Client Browser
+  |
+  v
+Frontend (React + Nginx)
+  |
+  v
+Backend API (Node.js + Express)
+  |
+  v
+PostgreSQL (Persistent Storage)
 ```
-┌──────────────────────────────────────────────────────────┐
-│                   Docker Network                          │
-├──────────────────────────────────────────────────────────┤
-│                                                            │
-│  ┌──────────────┐     ┌──────────────┐     ┌──────────┐ │
-│  │   Frontend   │────▶│   Backend    │────▶│PostgreSQL│ │
-│  │  (React +    │◀────│ (Node.js +   │◀────│  (DB)    │ │
-│  │   Nginx)     │     │  Express)    │     │          │ │
-│  │ Port 80:8080 │     │ Port 5000    │     │ Port5432 │ │
-│  └──────────────┘     └──────────────┘     └──────────┘ │
-│                                                            │
-│  • read_only: true    • health checks      • persistence │
-│  • no-new-priv        • depends_on db      • pgdata vol  │
-│                                                            │
-└──────────────────────────────────────────────────────────┘
-```
+
+Deployment options in this repo:
+- Docker Compose for local multi-container runs
+- Raw Kubernetes manifests (`k8s-manifest.yaml`, `pod.yml`)
+- Helm charts (`helm/` and `dso-helm/`) for templated K8s deployments
 
 ## 📁 Project Structure
 
-```
+```text
 DevSecOps/
-├── frontend/                    # React (Vite) frontend
-│   ├── src/                     # React components & pages
-│   ├── Dockerfile               # Frontend container image
-│   ├── nginx.conf               # Nginx reverse proxy config
-│   └── package.json
-├── backend/                     # Node.js Express API
-│   ├── src/                     # Routes, middleware, controllers
-│   ├── Dockerfile               # Backend container image
-│   ├── .env.example             # Environment variables template
-│   └── package.json
-├── docker-compose.yml           # Multi-container orchestration
-├── deploy/                      # Deployment scripts
-│   ├── setup.sh                 # EC2 setup automation
-│   └── jerney-nginx.conf        # Nginx reverse proxy config
-├── README.md                    # This file
-└── .gitignore
+├── backend/                # Express API + PostgreSQL integration
+├── frontend/               # React (Vite) app served by Nginx
+├── docker-compose.yml      # Local 3-tier orchestration
+├── k8s-manifest.yaml       # Single-file Kubernetes manifest set
+├── pod.yml                 # Additional Kubernetes pod manifest
+├── kind-config.yaml        # kind cluster configuration
+├── helm/                   # Base Helm chart
+├── dso-helm/               # Main Helm chart (templates + values)
+└── README.md
 ```
 
 ---
@@ -153,69 +148,40 @@ docker-compose exec backend npm run seed
 
 ---
 
-## 🚀 Deploy on AWS EC2
+## 🚀 Deploy on Kubernetes (Helm)
 
 ### Prerequisites
 
-- AWS EC2 instance running **Ubuntu 22.04+**
-- Security Group allowing inbound:
-  - Port **22** (SSH)
-  - Port **80** (HTTP)
-- SSH key pair configured
+- Kubernetes cluster (kind or Docker Desktop Kubernetes)
+- Helm 3.x
+- `kubectl` configured for your cluster
 
-### Step 1: Transfer Code to EC2
+### Deploy Steps
 
 ```bash
-scp -r -i your-key.pem ./ ubuntu@<EC2_PUBLIC_IP>:~/DevSecOps
+# From repository root
+helm upgrade --install dso ./dso-helm -n dev --create-namespace
+
+# Check rollout
+kubectl get pods -n dev
+kubectl get svc -n dev
 ```
 
-### Step 2: SSH into Instance
+### Access Application
+
+By default, the frontend service is `NodePort` on `30080`:
+
+```text
+http://localhost:30080
+```
+
+Optional port-forward:
 
 ```bash
-ssh -i your-key.pem ubuntu@<EC2_PUBLIC_IP>
+kubectl port-forward -n dev svc/dso-dev-dso-helm-frontend 8080:80
 ```
 
-### Step 3: Run Setup Script
-
-```bash
-cd ~/DevSecOps
-chmod +x deploy/setup.sh
-./deploy/setup.sh
-```
-
-**Setup script performs:**
-1. System package updates
-2. Node.js 20.x installation
-3. PostgreSQL 16 setup with database initialization
-4. Nginx configuration as reverse proxy
-5. PM2 for process management
-6. Backend dependency installation
-7. React frontend build
-8. Service startup and auto-restart configuration
-
-### Step 4: Access Application
-
-```
-http://<EC2_PUBLIC_IP>
-```
-
-### Useful EC2 Commands
-
-```bash
-# Backend process management
-pm2 status                          # View all PM2 processes
-pm2 logs                            # Stream backend logs
-pm2 restart all                     # Restart backend
-pm2 stop all                        # Stop backend
-
-# Nginx management
-sudo systemctl status nginx         # Check Nginx status
-sudo systemctl restart nginx        # Restart Nginx
-sudo nginx -t                       # Test Nginx config
-
-# Database access
-sudo -u postgres psql -d devsecops_db
-```
+Then open `http://localhost:8080`
 
 ---
 
@@ -354,7 +320,7 @@ curl http://localhost:5000/api/comments/post/1
 
 | Branch | Purpose | Deployment |
 |--------|---------|------------|
-| `main` | Production-ready code + EC2 deployment | EC2 bare-metal |
+| `main` | Production-ready code + stable releases | Kubernetes/Helm |
 | `devops` | Full DevSecOps pipeline + K8s | Docker + EKS/K8s |
 | `dev` | Development and testing | Local/staging |
 
@@ -455,4 +421,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ---
 
-**Last Updated:** May 9, 2026
+**Last Updated:** May 15, 2026

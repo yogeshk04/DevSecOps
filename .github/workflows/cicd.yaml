@@ -1,0 +1,255 @@
+name: DevSecOps CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cicd-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOCKER_REGISTRY: docker.io
+  BACKEND_IMAGE: docker.io/${{ github.repository }}/devsecops-backend
+  FRONTEND_IMAGE: docker.io/${{ github.repository }}/devsecops-frontend
+  NODE_VERSION: "20"
+
+jobs:
+  # Stage 1: Code quality checks for both app components.
+  lint:
+    name: Lint (${{ matrix.component }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.component }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.component }}
+        run: npm ci
+
+      - name: Run ESLint
+        working-directory: ${{ matrix.component }}
+        run: npm run lint
+
+  # Stage 2: Software composition analysis (dependency vulnerabilities).
+  dependency-audit:
+    name: Dependency Audit (${{ matrix.component }})
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.component }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.component }}
+        run: npm ci
+
+      - name: Run npm audit (fail on high+)
+        working-directory: ${{ matrix.component }}
+        run: npm audit --audit-level=high
+
+  # Stage 3: Container image linting (Dockerfile best practices).
+  dockerfile-lint:
+    name: Hadolint (${{ matrix.component }})
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ./${{ matrix.component }}/Dockerfile
+          failure-threshold: warning
+
+  # Stage 4: IaC/static policy checks for Kubernetes and workflow files.
+  iac-scan:
+    name: Checkov Scan
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: kubernetes,github_actions,dockerfile
+          soft_fail: true
+          output_format: cli
+
+  # Stage 5: Validate Helm chart rendering and schema.
+  helm-lint:
+    name: Helm Lint
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint Helm chart
+        run: helm lint ./dso-helm
+
+  # Stage 6: Build, scan, and publish container images.
+  build-and-scan:
+    name: Build/Scan (${{ matrix.component }})
+    runs-on: ubuntu-latest
+    needs: [dependency-audit, dockerfile-lint, iac-scan, helm-lint]
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Determine image name
+        id: image
+        run: |
+          if [ "${{ matrix.component }}" = "backend" ]; then
+            echo "name=${{ env.BACKEND_IMAGE }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${{ env.FRONTEND_IMAGE }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Build a local scan image first. This catches vulnerabilities before publishing.
+      - name: Build image for vulnerability scan
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.component }}
+          file: ./${{ matrix.component }}/Dockerfile
+          push: false
+          load: true
+          tags: ${{ steps.image.outputs.name }}:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ steps.image.outputs.name }}:scan
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          timeout: 10m
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.component }}
+          file: ./${{ matrix.component }}/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+  # Stage 7: Keep Helm values in sync with the latest image tag on main branch pushes.
+  update-helm-values:
+    name: Update Helm values image tags
+    runs-on: ubuntu-latest
+    needs: build-and-scan
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare image tag
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Update Helm image repositories and tags
+        env:
+          IMAGE_TAG: ${{ steps.sha.outputs.short }}
+        run: |
+          awk -v backend_repo="$BACKEND_IMAGE" -v frontend_repo="$FRONTEND_IMAGE" -v tag="$IMAGE_TAG" '
+            /^backend:/ {section="backend"}
+            /^frontend:/ {section="frontend"}
+            section=="backend" && /^    repository:/ {$0="    repository: " backend_repo}
+            section=="frontend" && /^    repository:/ {$0="    repository: " frontend_repo}
+            section=="backend" && /^    tag:/ {$0="    tag: \"" tag "\""}
+            section=="frontend" && /^    tag:/ {$0="    tag: \"" tag "\""}
+            {print}
+          ' dso-helm/values.yaml > dso-helm/values.yaml.tmp
+
+          mv dso-helm/values.yaml.tmp dso-helm/values.yaml
+
+      - name: Commit and push if changed
+        env:
+          IMAGE_TAG: ${{ steps.sha.outputs.short }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dso-helm/values.yaml
+          git commit -m "ci: update dso-helm image tags to ${IMAGE_TAG} [skip ci]" || echo "No changes to commit"
+          git push
